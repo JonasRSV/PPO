@@ -12,7 +12,7 @@ class PPO(object):
     def __init__(self, state_dim, action_dim, gamma=0.95,
                  traj=32, clip_param=0.2, optim_epoch=5, lr=0.001,
                  value_hidden_layers=0, actor_hidden_layers=0, 
-                 value_hidden_neurons=100, actor_hidden_neurons=200, 
+                 value_hidden_neurons=100, actor_hidden_neurons=100, 
                  scope="ppo", add_layer_norm=False, continous=True, 
                  training=True):
 
@@ -163,10 +163,10 @@ class PPO(object):
                                      trainable=trainable)
 
             sigma  = tf.layers.dense(x, self.a_dim,
-                                    activation=tf.nn.softplus,
+                                    activation=tf.nn.sigmoid,
                                     trainable=trainable)
 
-            obf = tf.distributions.Normal(loc=2 * mean, scale=sigma)
+            obf = tf.distributions.Normal(loc=mean * 2, scale=sigma)
 
         else:
             raise NotImplementedError("TODO")
