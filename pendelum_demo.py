@@ -30,7 +30,7 @@ if __name__ == "__main__":
                         entropy_coefficient=0.01,
                         clip_param=0.2,
                         traj=64,
-                        optim_epoch=5,
+                        optim_epoch=1,
                         training=training)
 
         saver = tf.train.Saver()

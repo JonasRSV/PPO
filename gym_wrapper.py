@@ -26,14 +26,15 @@ def train(env,
             s += 1
             ss = s1.reshape(1, -1)
 
-            action = actor.predict(ss)[0]
+            action = a_mod(actor.predict(ss)[0])
 
             # print(action)
 
-            s1, r1, terminal, _ = env.step(a_mod(action))
+            s2, r1, terminal, _ = env.step(action)
 
             actor.add_experience(s1, r1, terminal, action)
 
+            s1    = s2
             ep_r += r1
             if terminal:
                 break

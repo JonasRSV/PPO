@@ -10,7 +10,7 @@ class PPO(object):
 
     def __init__(self, state_dim, action_dim, gamma=0.99,
                  entropy_coefficient=0.01, traj=64, clip_param=0.2, 
-                 optim_epoch=5, lr=0.01, lr_decay=0., 
+                 optim_epoch=5, lr=0.0001, lr_decay=0., 
                  value_hidden_layers=2, actor_hidden_layers=2, 
                  value_hidden_neurons=32, actor_hidden_neurons=32, 
                  scope="ppo", add_layer_norm=False, continous=True, 
@@ -59,10 +59,10 @@ class PPO(object):
             # Define Target Network Update Op #
             ###################################
 
-            pi_vars     = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 
+            pi_vars     = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 
                                            '{}/pi'.format(scope))
 
-            old_pi_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 
+            old_pi_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 
                                            '{}/old_pi'.format(scope))
 
             self.equal_op = [tpv.assign(pv)
@@ -86,8 +86,7 @@ class PPO(object):
             self.actions = tf.placeholder(dtype=tf.float32, shape=[None, self.a_dim])
 
 
-            entropy_penalty = tf.reduce_mean(self.obf.entropy()) * (-entropy_coefficient)
-            pi_div_piold    = self.obf.prob(self.actions) / (self.old_obf.prob(self.actions) + tf.constant(1e-6))
+            pi_div_piold    = tf.exp(self.obf.log_prob(self.actions) - self.old_obf.log_prob(self.actions))
 
 
             #########################################
@@ -108,20 +107,18 @@ class PPO(object):
             # their divergence and the value functions  #
             # mininterpretation of reality! :)          #
             #############################################
-            self.total_loss = value_function_loss + pessimistic_surrogate + entropy_penalty
-            policy_opt = tf.train.AdamOptimizer(learning_rate=lr * lr_scale).minimize(pessimistic_surrogate + entropy_penalty)
-            value_opt  = tf.train.AdamOptimizer(learning_rate=lr * lr_scale).minimize(value_function_loss)
+            self.total_loss = (self.obf.prob(self.actions), self.old_obf.prob(self.actions))
+            policy_opt = tf.train.GradientDescentOptimizer(learning_rate=0.0001).minimize(pessimistic_surrogate)
+            value_opt  = tf.train.GradientDescentOptimizer(learning_rate=0.0001).minimize(value_function_loss)
 
             self.optimizer  = (policy_opt, value_opt)
-
-
 
 
             #####################################
             # If training use stochastic policy #
             #####################################
             if training:
-                self.policy = self.obf.sample()
+                self.policy = tf.nn.tanh(self.obf.sample())
                 self._init_trajectory_sampling()
             else:
                 self.policy = self.obf.mode()
@@ -131,7 +128,7 @@ class PPO(object):
         
         x = tf.layers.dense(state, 
                             neurons,
-                            activation=tf.nn.tanh)
+                            activation=tf.nn.elu)
 
         if self.add_layer_norm:
             x = tf.contrib.layers.layer_norm(x, trainable=False)
@@ -139,7 +136,7 @@ class PPO(object):
         for _ in range(layers):
             x = tf.layers.dense(x,
                                 neurons,
-                                activation=tf.nn.tanh)
+                                activation=tf.nn.elu)
 
             if self.add_layer_norm:
                 x = tf.contrib.layers.layer_norm(x, trainable=False)
@@ -184,7 +181,6 @@ class PPO(object):
                                     activation=tf.nn.softplus,
                                     trainable=trainable)
 
-
             obf = tf.distributions.Normal(loc=mean, scale=sigma)
 
         else:
@@ -199,12 +195,13 @@ class PPO(object):
     def train(self):
         losses   = 0
         episodes = 0
+        self.sess.run(self.equal_op)
+
         while not self.traj_queue.empty():
             trajectory = self.traj_queue.get()
 
-            discounted = scipy.signal.lfilter([1], [1, -self.gamma], trajectory["rewards"][::-1], axis=0)[::-1]
-            self.sess.run(self.equal_op)
-
+            rewards    = trajectory["rewards"] * (1 - trajectory["terminals"])
+            discounted = scipy.signal.lfilter([1], [1, -self.gamma], rewards[::-1], axis=0)[::-1]
 
             loss = 0
             for _ in range(self.optim_epoch):
@@ -212,10 +209,16 @@ class PPO(object):
                                 feed_dict={self.state: trajectory["observations"],
                                            self.actions: trajectory["actions"],
                                            self.rewards: discounted})
-                loss += epoch_l
+                # pi_new, pi_old = epoch_l
+
+                # print("PI_N", pi_new, "PI_O", pi_old)
+                print(epoch_l)
+                # loss += epoch_l
 
             losses   += loss / self.optim_epoch
             episodes += 1
+
+            print("OPTIM_DONE\n\n")
 
 
 
@@ -242,6 +245,8 @@ class PPO(object):
         self.trajectory["terminals"].append(term)
         self.trajectory["actions"].append(ac)
         self.traj_step += 1
+
+        # print(len(self.trajectory["observations"]))
 
         if self.traj_step >= self.traj:
             self.trajectory["observations"] = np.array(self.trajectory["observations"])
