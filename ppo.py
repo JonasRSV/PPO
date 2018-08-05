@@ -5,10 +5,11 @@ import random
 import copy
 from queue import Queue
 import sys
+import pandas as pd
 
 class PPO(object):
 
-    def __init__(self, state_dim, action_dim, gamma=0.99,
+    def __init__(self, state_dim, action_dim, gamma=0.95,
                  entropy_coefficient=0.01, traj=64, clip_param=0.2, 
                  optim_epoch=5, lr=0.0001, lr_decay=0., 
                  value_hidden_layers=2, actor_hidden_layers=2, 
@@ -107,9 +108,9 @@ class PPO(object):
             # their divergence and the value functions  #
             # mininterpretation of reality! :)          #
             #############################################
-            self.total_loss = (self.obf.prob(self.actions), self.old_obf.prob(self.actions))
-            policy_opt = tf.train.GradientDescentOptimizer(learning_rate=0.0001).minimize(pessimistic_surrogate)
-            value_opt  = tf.train.GradientDescentOptimizer(learning_rate=0.0001).minimize(value_function_loss)
+            self.total_loss = pessimistic_surrogate + value_function_loss #(self.obf.prob(self.actions), self.old_obf.prob(self.actions))
+            policy_opt = tf.train.GradientDescentOptimizer(learning_rate=lr).minimize(pessimistic_surrogate)
+            value_opt  = tf.train.GradientDescentOptimizer(learning_rate=lr).minimize(value_function_loss)
 
             self.optimizer  = (policy_opt, value_opt)
 
@@ -118,8 +119,7 @@ class PPO(object):
             # If training use stochastic policy #
             #####################################
             if training:
-                self.policy = tf.nn.tanh(self.obf.sample())
-                self._init_trajectory_sampling()
+                self.policy = self.obf.sample()
             else:
                 self.policy = self.obf.mode()
 
@@ -192,71 +192,53 @@ class PPO(object):
         return self.sess.run(self.policy, feed_dict={self.state: state})
 
 
-    def train(self):
-        losses   = 0
-        episodes = 0
-        self.sess.run(self.equal_op)
+    def train(self, trajectory):
+        final_state = trajectory["final_state"].reshape(1, -1)
+        final_value = self.sess.run((self.value_out), feed_dict={self.state: final_state})
 
-        while not self.traj_queue.empty():
-            trajectory = self.traj_queue.get()
+        trajectory = pd.DataFrame(data={"observations":trajectory["observations"],
+                                        "actions": trajectory["actions"],
+                                        "rewards": trajectory["rewards"],
+                                        "terminals": trajectory["terminals"]})
 
-            rewards    = trajectory["rewards"] * (1 - trajectory["terminals"])
-            discounted = scipy.signal.lfilter([1], [1, -self.gamma], rewards[::-1], axis=0)[::-1]
+
+        rewards     = trajectory["rewards"] 
+        rewards     = np.append(rewards, [final_value])
+        is_terminal = 1 - trajectory["terminals"]
+
+        trajectory_length = len(is_terminal)
+
+
+        discounted = np.zeros(trajectory_length)
+        for i in reversed(range(trajectory_length)):
+            discounted[i] = rewards[i] + self.gamma * rewards[i + 1] * is_terminal[i]
+
+        # trajectory["rewards"] = discounted
+
+        
+        total_loss = 0
+        training_samples = 2 * trajectory.shape[0] // self.traj
+        for _ in range(training_samples):
+            sample = trajectory.sample(self.traj)
+            obs  = np.vstack(sample["observations"])
+            acs  = np.vstack(sample["actions"])
+            rews = np.asarray(sample["rewards"])
+
+            self.sess.run(self.equal_op)
 
             loss = 0
             for _ in range(self.optim_epoch):
                 _, epoch_l = self.sess.run((self.optimizer, self.total_loss),
-                                feed_dict={self.state: trajectory["observations"],
-                                           self.actions: trajectory["actions"],
-                                           self.rewards: discounted})
-                # pi_new, pi_old = epoch_l
+                                feed_dict={self.state: obs,
+                                           self.actions: acs,
+                                           self.rewards: rews})
 
-                # print("PI_N", pi_new, "PI_O", pi_old)
-                print(epoch_l)
-                # loss += epoch_l
+                loss += epoch_l
 
-            losses   += loss / self.optim_epoch
-            episodes += 1
-
-            print("OPTIM_DONE\n\n")
+            total_loss += loss / self.optim_epoch
 
 
+        self.sess.run(self.update_cstate_op)
 
-
-            self.sess.run(self.update_cstate_op)
-
-            return losses / episodes
-
-    def _init_trajectory_sampling(self):
-        self.traj_queue = Queue()
-
-        self.traj_template = {"observations": [],
-                              "rewards": [],
-                              "terminals": [],
-                              "actions": []}
-
-        self.trajectory = copy.deepcopy(self.traj_template)
-        self.traj_step  = 0
-
-
-    def add_experience(self, ob, rew, term, ac):
-        self.trajectory["observations"].append(ob)
-        self.trajectory["rewards"].append(rew)
-        self.trajectory["terminals"].append(term)
-        self.trajectory["actions"].append(ac)
-        self.traj_step += 1
-
-        # print(len(self.trajectory["observations"]))
-
-        if self.traj_step >= self.traj:
-            self.trajectory["observations"] = np.array(self.trajectory["observations"])
-            self.trajectory["rewards"]      = np.array(self.trajectory["rewards"])
-            self.trajectory["terminals"]    = np.array(self.trajectory["terminals"])
-            self.trajectory["actions"]      = np.array(self.trajectory["actions"])
-
-            self.traj_queue.put(self.trajectory)
-            self.trajectory = copy.deepcopy(self.traj_template)
-            self.traj_step  = 0
-
-
+        return total_loss / training_samples
 

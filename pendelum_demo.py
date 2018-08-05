@@ -45,7 +45,7 @@ if __name__ == "__main__":
                 print("Playing...")
                 gym_wrapper.play(env, actor, a_mod=action_modifier)
             else:
-                gym_wrapper.train(env, actor, 110000, a_mod=action_modifier, render=True)
+                gym_wrapper.train(env, actor, 1000000, a_mod=action_modifier, render=True)
         except KeyboardInterrupt:
             pass
 

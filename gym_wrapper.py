@@ -19,6 +19,13 @@ def train(env,
         s1   = env.reset()
         ep_r = 0
         ep_l = 0
+
+        trajectory = {"observations": [],
+                      "actions": [],
+                      "rewards": [],
+                      "terminals": [],
+                      "final_state": s1}
+
         for _ in range(max_ep_step):
             if render:
                 env.render()
@@ -32,15 +39,19 @@ def train(env,
 
             s2, r1, terminal, _ = env.step(action)
 
-            actor.add_experience(s1, r1, terminal, action)
+            trajectory["observations"].append(s1)
+            trajectory["actions"].append(action)
+            trajectory["rewards"].append(r1)
+            trajectory["terminals"].append(terminal)
+            trajectory["final_state"] = s2
 
             s1    = s2
             ep_r += r1
+
             if terminal:
                 break
 
-        ep_l += actor.train()
-
+        ep_l += actor.train(trajectory)
 
         summary = tf.Summary()
         summary.value.add(tag="Steps", simple_value=float(s))
