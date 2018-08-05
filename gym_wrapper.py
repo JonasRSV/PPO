@@ -5,7 +5,7 @@ import time
 def train(env, 
           actor, 
           steps, 
-          max_ep_step=200, 
+          max_ep_step=300, 
           a_mod=lambda x: x,
           warm_up_steps=1000,
           render=True, 
@@ -33,11 +33,11 @@ def train(env,
             s += 1
             ss = s1.reshape(1, -1)
 
-            action = a_mod(actor.predict(ss)[0])
+            action = actor.predict(ss)[0]
 
             # print(action)
 
-            s2, r1, terminal, _ = env.step(action)
+            s2, r1, terminal, _ = env.step(a_mod(action))
 
             trajectory["observations"].append(s1)
             trajectory["actions"].append(action)
@@ -55,8 +55,8 @@ def train(env,
 
         summary = tf.Summary()
         summary.value.add(tag="Steps", simple_value=float(s))
-        summary.value.add(tag="Reward", simple_value=float(ep_r / max_ep_step))
-        summary.value.add(tag="Loss", simple_value=float(ep_l / max_ep_step))
+        summary.value.add(tag="Reward", simple_value=float(ep_r))
+        summary.value.add(tag="Loss", simple_value=float(ep_l))
 
         summary_write.add_summary(summary, summary_index)
         summary_write.flush()

@@ -10,7 +10,7 @@ ENV = 'Pendulum-v0'
 
 
 def action_modifier(action):
-    return np.clip(action * 2, -2, 2)
+    return np.clip(action, -2, 2)
 
 
 if __name__ == "__main__":
@@ -26,11 +26,10 @@ if __name__ == "__main__":
 
         actor = ppo.PPO(3,
                         1,
-                        gamma=0.99,
-                        entropy_coefficient=0.01,
-                        clip_param=0.2,
-                        traj=64,
-                        optim_epoch=1,
+                        gamma=0.90,
+                        clip_param=0.1,
+                        traj=32,
+                        optim_epoch=4,
                         training=training)
 
         saver = tf.train.Saver()
