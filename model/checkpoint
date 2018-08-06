@@ -1,2 +1,2 @@
-model_checkpoint_path: "pendelum"
-all_model_checkpoint_paths: "pendelum"
+model_checkpoint_path: "cartpole"
+all_model_checkpoint_paths: "cartpole"

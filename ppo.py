@@ -41,8 +41,9 @@ class Softmax():
     ###########################
     # Credit Baselines OpenAI #
     ###########################
-    def __init__(self, logits):
+    def __init__(self, logits, exp_scale):
         self.logits    = logits
+        self.exp_scale = exp_scale
 
     def mode(self):
         return tf.argmax(self.logits, axis=-1)
@@ -58,11 +59,11 @@ class Softmax():
         ea0 = tf.exp(a0)
         z0 = tf.reduce_sum(ea0, axis=-1, keepdims=True)
         p0 = ea0 / z0
-        return tf.reduce_sum(p0 * (tf.log(z0) - a0), axis=-1)
+        return tf.reduce_sum(p0 * (tf.log(z0) - a0), axis=-1) * self.exp_scale
 
     def sample(self):
         u = tf.random_uniform(tf.shape(self.logits))
-        return tf.argmax(self.logits - tf.log(-tf.log(u)), axis=-1)
+        return tf.argmax(self.logits - self.exp_scale * tf.log(-tf.log(u)), axis=-1)
 
     def prob(self, x):
         return tf.exp(-self.neglogp(x))
@@ -273,7 +274,7 @@ class PPO(object):
                                      activation=tf.nn.softmax,
                                      trainable=trainable)
 
-            obf = Softmax(logits)
+            obf = Softmax(logits, exp_scale)
 
         return obf
 

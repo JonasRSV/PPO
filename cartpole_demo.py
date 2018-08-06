@@ -22,14 +22,17 @@ if __name__ == "__main__":
 
         actor = ppo.PPO(4,
                         2,
-                        gamma=0.90,
-                        lam=0.90,
-                        clip_param=0.1,
-                        batch=64,
-                        optim_epoch=3,
-                        lr=0.01,
+                        gamma=0.95,
+                        lam=0.98,
+                        clip_param=0.2,
+                        batch=200,
+                        optim_epoch=2,
+                        lr=0.0001,
+                        lr_decay=0.001,
+                        exp_decay=0.001,
+                        storage=400,
                         value_coefficient=1,
-                        entropy_coefficient=0.01,
+                        entropy_coefficient=0.001,
                         training=training,
                         continous=False)
 
@@ -47,7 +50,7 @@ if __name__ == "__main__":
                 gym_wrapper.play(env, actor)
             else:
                 print("Training")
-                gym_wrapper.train(env, actor, 1000000, render=True)
+                gym_wrapper.train(env, actor, 1000000, render=False)
         except KeyboardInterrupt:
             pass
 
