@@ -28,7 +28,7 @@ if __name__ == "__main__":
                         1,
                         gamma=0.95,
                         clip_param=0.2,
-                        traj=32,
+                        batch=32,
                         optim_epoch=4,
                         training=training)
 

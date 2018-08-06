@@ -1,9 +1,7 @@
 import tensorflow as tf
-import scipy.signal
 import numpy as np
 import random
 import copy
-from queue import Queue
 import sys
 import pandas as pd
 
@@ -14,10 +12,11 @@ class Normal(object):
     # Was to numerically unstable to use as a PD   #
     ################################################
 
-    def __init__(self, mu, log_sigma):
+    def __init__(self, mu, log_sigma, exp_scale=1):
         self.mu        = mu
         self.log_sigma = log_sigma
         self.sigma     = tf.exp(log_sigma)
+        self.exp_scale = exp_scale
 
 
     def mode(self):
@@ -35,10 +34,12 @@ class Normal(object):
                + tf.reduce_sum(self.log_sigma, axis=-1)
 
     def entropy(self):
-        return tf.reduce_sum(self.log_sigma + .5 * np.log(2.0 * np.pi * np.e), axis=-1)
+        return tf.reduce_sum(self.log_sigma + .5 * np.log(2.0 * np.pi * np.e), axis=-1)\
+                * self.exp_scale
 
     def sample(self):
-        return self.mu + self.sigma * tf.random_normal(tf.shape(self.mu))
+        return self.mu + self.sigma * tf.random_normal(tf.shape(self.mu))\
+                * self.exp_scale
 
     def prob(self, x):
         return tf.exp(-self.neglogp(x))
@@ -46,8 +47,10 @@ class Normal(object):
 
 class PPO(object):
 
-    def __init__(self, state_dim, action_dim, gamma=0.90, lam=0.95,
-                 traj=100, clip_param=0.2, optim_epoch=5, lr=0.001,
+    def __init__(self, state_dim, action_dim, gamma=0.95, lam=0.95,
+                 entropy_coefficient=0.001, value_coefficient=0.5,
+                 batch=64, clip_param=0.2, optim_epoch=5, lr=0.001,
+                 lr_decay=0.0, exp_decay=0.0,
                  value_hidden_layers=1, actor_hidden_layers=1, 
                  value_hidden_neurons=64, actor_hidden_neurons=64, 
                  scope="ppo", add_layer_norm=False, continous=True, 
@@ -61,13 +64,27 @@ class PPO(object):
         self.a_dim = action_dim
         self.gamma = gamma
         self.lam   = lam
-        self.traj  = traj
+
+        self.batch       = batch
         self.clip_param  = clip_param
         self.optim_epoch = optim_epoch
 
         self.add_layer_norm  = add_layer_norm
         self.training        = training
         self.continous       = continous
+
+        #############
+        # Decay Ops #
+        #############
+
+        lr_scale  = tf.Variable(1, dtype=tf.float32, trainable=False)
+        exp_scale = tf.Variable(1, dtype=tf.float32, trainable=False)
+
+        lr_decay  = tf.constant(1 - lr_decay, dtype=tf.float32)
+        exp_decay = tf.constant(1 - exp_decay, dtype=tf.float32)
+
+        self.decay_u_op = (lr_scale.assign(lr_scale * lr_decay),
+                          exp_scale.assign(exp_scale * exp_decay))
 
         #####################################
         # Create Object and Value Functions # 
@@ -81,11 +98,13 @@ class PPO(object):
                 self.obf = self.create_actor(self.state,
                                              actor_hidden_layers, 
                                              actor_hidden_neurons,
+                                             exp_scale,
                                              trainable=True)
             with tf.variable_scope("old_pi"):
                     self.old_obf = self.create_actor(self.state,
                                                      actor_hidden_layers,
                                                      actor_hidden_neurons,
+                                                     exp_scale,
                                                      trainable=False)
             with tf.variable_scope("value"):
                     self.value_out = self.create_value(self.state,
@@ -144,19 +163,20 @@ class PPO(object):
             LCLIP = tf.minimum(surrogate, clipped_surrogate)
             VF = tf.square(self.value_out - self.vtarget)
 
-            c1 = 0.5
-            c2 = 0.001
+            c1 = value_coefficient
+            c2 = entropy_coefficient
             
             entropy_bonus = self.obf.entropy()
 
             ############################################
             # https://arxiv.org/pdf/1707.06347.pdf (9) #
             ############################################
-            self.Lt = tf.reduce_mean(-LCLIP + c1 * VF + c2 * entropy_bonus)
+            self.Lt = tf.reduce_mean(-LCLIP + c1 * VF + c2 * -entropy_bonus)
             gradients = tf.gradients(self.Lt, train_vars)
 
             
-            self.optimizer = ((tf.reduce_mean(self.obf.mean()), tf.reduce_mean(self.obf.stddev())), tf.train.AdamOptimizer(learning_rate=lr).apply_gradients(zip(gradients, train_vars)))
+            self.optimizer = tf.train.AdamOptimizer(learning_rate=lr * lr_scale)\
+                                .apply_gradients(zip(gradients, train_vars))
 
 
 
@@ -193,7 +213,7 @@ class PPO(object):
 
         return out[:, 0]
 
-    def create_actor(self, state, layers, neurons, trainable=True):
+    def create_actor(self, state, layers, neurons, exp_scale, trainable=True):
 
         x = tf.layers.dense(state, 
                             neurons,
@@ -227,7 +247,7 @@ class PPO(object):
                                     activation=tf.nn.tanh,
                                     trainable=trainable)
 
-            obf = Normal(mean, log_sigma)
+            obf = Normal(mean, log_sigma, exp_scale)
         else:
             raise NotImplementedError("TODO")
 
@@ -269,9 +289,9 @@ class PPO(object):
         self.sess.run(self.equal_op)
 
         total_loss = 0
-        training_samples = trajectory.shape[0] // self.traj
+        training_samples = trajectory.shape[0] // self.batch
         for _ in range(training_samples):
-            sample = trajectory.sample(self.traj)
+            sample = trajectory.sample(self.batch)
             obs   = np.vstack(sample["observations"])
             acs   = np.vstack(sample["actions"])
             vtarg = np.asarray(sample["value_target"])
@@ -281,7 +301,7 @@ class PPO(object):
 
             loss = 0
             for _ in range(self.optim_epoch):
-                (LCP, _), epoch_l = self.sess.run((self.optimizer, self.Lt),
+                _, epoch_l = self.sess.run((self.optimizer, self.Lt),
                                 feed_dict={self.state: obs,
                                            self.actions: acs,
                                            self.vtarget: vtarg,
@@ -289,10 +309,11 @@ class PPO(object):
 
 
 
-                # print(LCP)
                 loss += abs(epoch_l)
 
             total_loss += abs(loss / self.optim_epoch)
+
+        self.sess.run(self.decay_u_op)
 
         return total_loss / training_samples
 
