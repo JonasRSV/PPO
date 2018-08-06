@@ -30,7 +30,10 @@ if __name__ == "__main__":
                         clip_param=0.2,
                         batch=32,
                         optim_epoch=4,
-                        training=training)
+                        lr_decay=0.001,
+                        storage=32,
+                        training=training,
+                        continous=True)
 
         saver = tf.train.Saver()
         if "-n" in sys.argv:
@@ -44,7 +47,7 @@ if __name__ == "__main__":
                 print("Playing...")
                 gym_wrapper.play(env, actor, a_mod=action_modifier)
             else:
-                gym_wrapper.train(env, actor, 1000000, a_mod=action_modifier, render=True)
+                gym_wrapper.train(env, actor, 1000000, a_mod=action_modifier, render=False)
         except KeyboardInterrupt:
             pass
 

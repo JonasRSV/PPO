@@ -9,6 +9,7 @@
 
 <a href="https://giphy.com/gifs/jxa5HFQeS3CLO2Sxdm"> <img src="https://media.giphy.com/media/jxa5HFQeS3CLO2Sxdm/giphy.gif" title="Pendelum demo"/></a>
 
-![Imgur](https://i.imgur.com/zd2UUyI.png)
+![Imgur](https://i.imgur.com/vxiH7GY.png)
+
 
 
