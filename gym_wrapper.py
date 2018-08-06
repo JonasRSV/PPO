@@ -71,11 +71,16 @@ def play(env, actor, a_mod=lambda x: x, games=20):
         terminal = False
         s0 = env.reset()
 
+        r = 0
         while not terminal:
             env.render()
             s0 = s0.reshape(1, -1)
             action = actor.predict(s0)[0]
-            print(action)
-            s0, _, terminal, _ = env.step(a_mod(action))
+            # print(action)
+            s0, r1, terminal, _ = env.step(a_mod(action))
+
+            r += r1
+
+        print(r)
 
     env.close()

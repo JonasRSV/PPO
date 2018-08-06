@@ -62,7 +62,7 @@ class Softmax():
         return tf.reduce_sum(p0 * (tf.log(z0) - a0), axis=-1) * self.exp_scale
 
     def sample(self):
-        u = tf.random_uniform(tf.shape(self.logits))
+        u = tf.random_uniform(tf.shape(self.logits), dtype=tf.float32)
         return tf.argmax(self.logits - self.exp_scale * tf.log(-tf.log(u)), axis=-1)
 
     def prob(self, x):
