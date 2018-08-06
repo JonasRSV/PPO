@@ -21,7 +21,7 @@ Start Tensorboard on the summaries directory, create one if there is none then r
 Works Great for continous problems! :) 
 
 
-<a href="https://giphy.com/gifs/jxa5HFQeS3CLO2Sxdm"> <img width=400px src="https://media.giphy.com/media/jxa5HFQeS3CLO2Sxdm/giphy.gif" title="Pendelum demo"/></a>
+<a href="https://giphy.com/gifs/jxa5HFQeS3CLO2Sxdm"> <img width=350px src="https://media.giphy.com/media/jxa5HFQeS3CLO2Sxdm/giphy.gif" title="Pendelum demo"/></a>
 
 ![Imgur](https://i.imgur.com/vxiH7GY.png)
 
@@ -32,4 +32,4 @@ The GIF below was from carefully tuning the parameters and stopping the training
 for a few more iterations it would probably crash. Any pointers how to make the discrete training more stable would be super cool! :) 
 
 
-<a href="https://giphy.com/gifs/9AIdZ1IdJfih5t8slt"> <img width=400px src="https://media.giphy.com/media/9AIdZ1IdJfih5t8slt/giphy.gif" title="Cartpole demo"/></a>
+<a href="https://giphy.com/gifs/9AIdZ1IdJfih5t8slt"> <img width=350px src="https://media.giphy.com/media/9AIdZ1IdJfih5t8slt/giphy.gif" title="Cartpole demo"/></a>
