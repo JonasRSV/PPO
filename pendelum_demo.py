@@ -10,7 +10,7 @@ ENV = 'Pendulum-v0'
 
 
 def action_modifier(action):
-    return np.clip(action, -2, 2)
+    return np.clip(action * 2, -2, 2)
 
 
 if __name__ == "__main__":
@@ -26,8 +26,8 @@ if __name__ == "__main__":
 
         actor = ppo.PPO(3,
                         1,
-                        gamma=0.90,
-                        clip_param=0.1,
+                        gamma=0.95,
+                        clip_param=0.2,
                         traj=32,
                         optim_epoch=4,
                         training=training)

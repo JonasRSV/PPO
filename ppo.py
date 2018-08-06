@@ -7,12 +7,49 @@ from queue import Queue
 import sys
 import pandas as pd
 
+class Normal(object):
+    ################################################
+    #         Credit OpenAI Baselines              #
+    # Tensorflows Default Normal Distribution      #
+    # Was to numerically unstable to use as a PD   #
+    ################################################
+
+    def __init__(self, mu, log_sigma):
+        self.mu        = mu
+        self.log_sigma = log_sigma
+        self.sigma     = tf.exp(log_sigma)
+
+
+    def mode(self):
+        return self.mu
+
+    def mean(self):
+        return self.mu
+
+    def stddev(self):
+        return self.sigma
+
+    def neglogp(self, x):
+        return 0.5 * tf.reduce_sum(tf.square((x - self.mu) / self.sigma), axis=-1) \
+               + 0.5 * np.log(2.0 * np.pi) * tf.to_float(tf.shape(x)[-1]) \
+               + tf.reduce_sum(self.log_sigma, axis=-1)
+
+    def entropy(self):
+        return tf.reduce_sum(self.log_sigma + .5 * np.log(2.0 * np.pi * np.e), axis=-1)
+
+    def sample(self):
+        return self.mu + self.sigma * tf.random_normal(tf.shape(self.mu))
+
+    def prob(self, x):
+        return tf.exp(-self.neglogp(x))
+
+
 class PPO(object):
 
-    def __init__(self, state_dim, action_dim, gamma=0.95,
-                 traj=32, clip_param=0.2, optim_epoch=5, lr=0.001,
-                 value_hidden_layers=0, actor_hidden_layers=0, 
-                 value_hidden_neurons=100, actor_hidden_neurons=100, 
+    def __init__(self, state_dim, action_dim, gamma=0.90, lam=0.95,
+                 traj=100, clip_param=0.2, optim_epoch=5, lr=0.001,
+                 value_hidden_layers=1, actor_hidden_layers=1, 
+                 value_hidden_neurons=64, actor_hidden_neurons=64, 
                  scope="ppo", add_layer_norm=False, continous=True, 
                  training=True):
 
@@ -23,6 +60,7 @@ class PPO(object):
         self.s_dim = state_dim
         self.a_dim = action_dim
         self.gamma = gamma
+        self.lam   = lam
         self.traj  = traj
         self.clip_param  = clip_param
         self.optim_epoch = optim_epoch
@@ -68,36 +106,58 @@ class PPO(object):
             self.equal_op = [tpv.assign(pv)
                                 for tpv, pv in zip(old_pi_vars, pi_vars)]
 
+            pi_train_vars    = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                                                 '{}/pi'.format(scope))
+
+            value_train_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                                                 '{}/value'.format(scope))
+
+            train_vars = pi_train_vars + value_train_vars
+
             ################
             # Training Ops #
             ################
-            self.rewards = tf.placeholder(dtype=tf.float32, shape=[None])
-            self.actions = tf.placeholder(dtype=tf.float32, shape=[None, self.a_dim])
+            self.advantages = tf.placeholder(dtype=tf.float32, shape=[None])
+            self.vtarget    = tf.placeholder(dtype=tf.float32, shape=[None])
+            self.actions    = tf.placeholder(dtype=tf.float32, shape=[None, self.a_dim])
 
 
-            pi_div_piold = tf.exp(self.obf.log_prob(self.actions) - tf.stop_gradient(self.old_obf.log_prob(self.actions)))
+            mean_action = tf.reduce_mean(self.actions)
 
+
+            pi_a_likelihood    = self.obf.prob(self.actions)
+            oldpi_a_likelihood = self.old_obf.prob(self.actions)
+            pi_div_piold       = pi_a_likelihood / oldpi_a_likelihood
+
+
+            mean, variance = tf.nn.moments(self.advantages, axes=0)
+            normalized_adv = (self.advantages - mean) / tf.sqrt(variance)
 
             #########################################
             #       Surrogate Objectives            #
             # https://arxiv.org/pdf/1707.06347.pdf  #
             #          (6)    and    (7)            #
             #########################################
-            policy_advantage  = self.rewards - tf.stop_gradient(self.value_out)
+            surrogate         = pi_div_piold * normalized_adv
+            clipped_surrogate = tf.clip_by_value(pi_div_piold, 1.0 - clip_param, 1.0 + clip_param) * normalized_adv
 
+            LCLIP = tf.minimum(surrogate, clipped_surrogate)
+            VF = tf.square(self.value_out - self.vtarget)
 
-            surrogate         = pi_div_piold * policy_advantage
-            clipped_surrogate = tf.clip_by_value(pi_div_piold, 1.0 - clip_param, 1.0 + clip_param) * policy_advantage
+            c1 = 0.5
+            c2 = 0.001
+            
+            entropy_bonus = self.obf.entropy()
 
-            pessimistic_surrogate = -tf.reduce_mean(tf.minimum(surrogate, clipped_surrogate))
+            ############################################
+            # https://arxiv.org/pdf/1707.06347.pdf (9) #
+            ############################################
+            self.Lt = tf.reduce_mean(-LCLIP + c1 * VF + c2 * entropy_bonus)
+            gradients = tf.gradients(self.Lt, train_vars)
 
-            value_function_loss = tf.reduce_mean(tf.square(self.value_out - self.rewards)) 
+            
+            self.optimizer = ((tf.reduce_mean(self.obf.mean()), tf.reduce_mean(self.obf.stddev())), tf.train.AdamOptimizer(learning_rate=lr).apply_gradients(zip(gradients, train_vars)))
 
-            self.total_loss = pessimistic_surrogate #(self.obf.prob(self.actions), self.old_obf.prob(self.actions))
-            policy_opt = tf.train.AdamOptimizer(learning_rate=lr).minimize(pessimistic_surrogate)
-            value_opt  = tf.train.AdamOptimizer(learning_rate=lr).minimize(value_function_loss)
-
-            self.optimizer  = (policy_opt, value_opt)
 
 
             #####################################
@@ -137,7 +197,7 @@ class PPO(object):
 
         x = tf.layers.dense(state, 
                             neurons,
-                            activation=tf.nn.relu,
+                            activation=tf.nn.tanh,
                             trainable=trainable)
 
         if self.add_layer_norm:
@@ -146,7 +206,7 @@ class PPO(object):
         for _ in range(layers):
             x = tf.layers.dense(x,
                                 neurons,
-                                activation=tf.nn.relu,
+                                activation=tf.nn.tanh,
                                 trainable=trainable)
 
             if self.add_layer_norm:
@@ -158,16 +218,16 @@ class PPO(object):
         #############################
         obf = None
         if self.continous:
-            mean   = tf.layers.dense(x, self.a_dim, 
-                                     activation=tf.nn.tanh,
-                                     trainable=trainable)
+            mean = tf.layers.dense(x, self.a_dim, 
+                                   activation=tf.tanh,
+                                   trainable=trainable)
 
-            sigma  = tf.layers.dense(x, self.a_dim,
-                                    activation=tf.nn.sigmoid,
+            log_sigma = tf.layers.dense(x, self.a_dim,
+                                    kernel_initializer=tf.zeros_initializer(),
+                                    activation=tf.nn.tanh,
                                     trainable=trainable)
 
-            obf = tf.distributions.Normal(loc=mean * 2, scale=sigma)
-
+            obf = Normal(mean, log_sigma)
         else:
             raise NotImplementedError("TODO")
 
@@ -178,8 +238,8 @@ class PPO(object):
 
 
     def train(self, trajectory):
-        final_state = trajectory["final_state"].reshape(1, -1)
-        final_value = self.sess.run((self.value_out), feed_dict={self.state: final_state})
+        states      = np.vstack(trajectory["observations"] + [trajectory["final_state"]])
+        values      = self.sess.run((self.value_out), feed_dict={self.state: states})
 
         trajectory = pd.DataFrame(data={"observations":trajectory["observations"],
                                         "actions": trajectory["actions"],
@@ -187,46 +247,50 @@ class PPO(object):
                                         "terminals": trajectory["terminals"]})
 
 
-        rewards     = trajectory["rewards"] 
-        rewards     = np.clip(rewards, -1, 1)
-        rewards     = np.append(rewards, [final_value])
+        rewards     = trajectory["rewards"]
+        rewards     = np.append(rewards, [0])
         is_terminal = 1 - trajectory["terminals"]
 
         trajectory_length = len(is_terminal)
 
-
-        discounted = np.zeros(trajectory_length)
+        #################################################
+        # GAE https://arxiv.org/pdf/1707.06347.pdf (11) #
+        #################################################
+        adv = np.zeros(trajectory_length)
         for i in reversed(range(trajectory_length)):
-            rewards[i] = discounted[i] = rewards[i] + self.gamma * rewards[i + 1] * is_terminal[i]
+            delta      = rewards[i] + (self.gamma * values[i + 1] - values[i]) * is_terminal[i]
+            rewards[i] = adv[i] = delta + self.gamma * self.lam * rewards[i + 1] * is_terminal[i]
 
 
-        trajectory["rewards"] = discounted
-
+        trajectory["adv"]          = adv
+        trajectory["value_target"] = values[:-1] + adv
 
 
         self.sess.run(self.equal_op)
 
         total_loss = 0
-        training_samples = 2 * trajectory.shape[0] // self.traj
+        training_samples = trajectory.shape[0] // self.traj
         for _ in range(training_samples):
             sample = trajectory.sample(self.traj)
-            obs  = np.vstack(sample["observations"])
-            acs  = np.vstack(sample["actions"])
-            rews = np.asarray(sample["rewards"])
+            obs   = np.vstack(sample["observations"])
+            acs   = np.vstack(sample["actions"])
+            vtarg = np.asarray(sample["value_target"])
+            adv   = np.asarray(sample["adv"])
 
 
 
             loss = 0
             for _ in range(self.optim_epoch):
-                _, epoch_l = self.sess.run((self.optimizer, self.total_loss),
+                (LCP, _), epoch_l = self.sess.run((self.optimizer, self.Lt),
                                 feed_dict={self.state: obs,
                                            self.actions: acs,
-                                           self.rewards: rews})
+                                           self.vtarget: vtarg,
+                                           self.advantages: adv})
 
 
-                # print(epoch_l)
+
+                # print(LCP)
                 loss += abs(epoch_l)
-
 
             total_loss += abs(loss / self.optim_epoch)
 
