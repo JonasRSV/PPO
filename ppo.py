@@ -1,9 +1,7 @@
 import tensorflow as tf
 import numpy as np
-import random
-import copy
-import sys
 import pandas as pd
+
 
 class Normal(object):
     ###########################
@@ -15,7 +13,6 @@ class Normal(object):
         self.log_sigma = log_sigma
         self.sigma     = tf.exp(log_sigma)
         self.exp_scale = exp_scale
-
 
     def mode(self):
         return self.mu
