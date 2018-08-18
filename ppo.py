@@ -45,7 +45,7 @@ class Softmax():
     def mode(self):
         return tf.argmax(self.logits, axis=-1)
 
-    def neglogp(self, x):
+    def logp(self, x):
         one_hot_actions = tf.one_hot(x, self.logits.get_shape().as_list()[-1])
         return tf.nn.softmax_cross_entropy_with_logits_v2(
             logits=self.logits,
@@ -60,10 +60,10 @@ class Softmax():
 
     def sample(self):
         u = tf.random_uniform(tf.shape(self.logits), dtype=tf.float32)
-        return tf.argmax(self.logits - self.exp_scale * tf.log(-tf.log(u)), axis=-1)
+        return tf.argmax(tf.nn.softmax(self.logits) - self.exp_scale * tf.log(-tf.log(u)), axis=-1)
 
     def prob(self, x):
-        return tf.exp(-self.neglogp(x))
+        return tf.exp(self.logp(x))
 
 
 class PPO(object):
@@ -170,6 +170,7 @@ class PPO(object):
             oldpi_a_likelihood = self.old_obf.prob(self.actions)
             pi_div_piold       = pi_a_likelihood / oldpi_a_likelihood
 
+
             mean, variance = tf.nn.moments(self.advantages, axes=0)
             normalized_adv = (self.advantages - mean) / tf.sqrt(variance)
 
@@ -183,6 +184,7 @@ class PPO(object):
 
             LCLIP = tf.minimum(surrogate, clipped_surrogate)
             VF = tf.square(self.value_out - self.vtarget)
+
 
             c1 = value_coefficient
             c2 = entropy_coefficient
@@ -268,7 +270,7 @@ class PPO(object):
             obf = Normal(mean, log_sigma, exp_scale)
         else:
             logits = tf.layers.dense(x, self.a_dim,
-                                     activation=tf.nn.softmax,
+                                     activation=None,
                                      trainable=trainable)
 
             obf = Softmax(logits, exp_scale)
@@ -276,7 +278,7 @@ class PPO(object):
         return obf
 
     def predict(self, state):
-        return self.sess.run(self.policy, feed_dict={self.state: state})
+        return self.sess.run((self.policy), feed_dict={self.state: state})
 
 
     def train(self, trajectory):
@@ -321,7 +323,7 @@ class PPO(object):
 
                 loss = 0
                 for _ in range(self.optim_epoch):
-                    _, epoch_l = self.sess.run((self.optimizer, self.Lt),
+                    _, epoch_l = self.sess.run(((self.optimizer), self.Lt),
                                     feed_dict={self.state: obs,
                                                self.actions: acs,
                                                self.vtarget: vtarg,

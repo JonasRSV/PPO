@@ -26,10 +26,7 @@ Works Great for continous problems! :)
 ![Imgur](https://i.imgur.com/vxiH7GY.png)
 
 
-> Works less Great for discrete problems
 
-The GIF below was from carefully tuning the parameters and stopping the training when i saw that it peaked, had i let it run
-for a few more iterations it would probably crash. Any pointers how to make the discrete training more stable would be super cool! :) 
+Works Great for Discrete problems! :) 
 
-
-<a href="https://giphy.com/gifs/9AIdZ1IdJfih5t8slt"> <img width=351px src="https://media.giphy.com/media/9AIdZ1IdJfih5t8slt/giphy.gif" title="Cartpole demo"/></a>
+<a href="https://giphy.com/gifs/3rWc8qOYjVCfsgiqh2"> <img width=351px src="https://media.giphy.com/media/3rWc8qOYjVCfsgiqh2/giphy.gif" title="Cartpole demo"/></a>
