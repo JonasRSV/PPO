@@ -29,6 +29,7 @@ Start Tensorboard on the summaries directory, create one if there is none then r
 <br>
 
 ## Demos
+Solutions to two of the gyms from [openAI][https://gym.openai.com/]
 
 ## Continous
 
