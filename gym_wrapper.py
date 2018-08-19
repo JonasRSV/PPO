@@ -35,8 +35,6 @@ def train(env,
 
             action = actor.predict(ss)[0]
 
-            # print(action)
-
             s2, r1, terminal, _ = env.step(a_mod(action))
 
             trajectory["observations"].append(s1)
@@ -76,7 +74,6 @@ def play(env, actor, a_mod=lambda x: x, games=20):
             env.render()
             s0 = s0.reshape(1, -1)
             action = actor.predict(s0)[0]
-            # print(action)
             s0, r1, terminal, _ = env.step(a_mod(action))
 
             r += r1

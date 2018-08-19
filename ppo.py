@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 
-class Normal(object):
+class Continous(object):
     ###########################
     # Credit OpenAI Baselines #
     ###########################
@@ -34,10 +34,7 @@ class Normal(object):
         return tf.exp(-self.neglogp(x))
 
 
-class Softmax():
-    ###########################
-    # Credit Baselines OpenAI #
-    ###########################
+class Categorical():
     def __init__(self, logits, exp_scale):
         self.logits    = logits
         self.exp_scale = exp_scale
@@ -70,12 +67,14 @@ class PPO(object):
 
     def __init__(self, state_dim, action_dim, gamma=0.95, lam=0.95,
                  entropy_coefficient=0.001, value_coefficient=0.5,
-                 batch=64, clip_param=0.2, optim_epoch=5, lr=0.001,
+                 horizon=64, clip_param=0.2, optim_epoch=5, lr=0.001,
                  lr_decay=0.0, exp_decay=0.0, storage=64,
                  value_hidden_layers=1, actor_hidden_layers=1, 
                  value_hidden_neurons=64, actor_hidden_neurons=64, 
                  scope="ppo", add_layer_norm=False, continous=True, 
                  training=True):
+
+        assert horizon <= storage
 
         self.sess  = tf.get_default_session()
         self.s_dim = state_dim
@@ -83,7 +82,7 @@ class PPO(object):
         self.gamma = gamma
         self.lam   = lam
 
-        self.batch       = batch
+        self.horizon     = horizon
         self.clip_param  = clip_param
         self.optim_epoch = optim_epoch
 
@@ -169,7 +168,6 @@ class PPO(object):
             pi_a_likelihood    = self.obf.prob(self.actions)
             oldpi_a_likelihood = self.old_obf.prob(self.actions)
             pi_div_piold       = pi_a_likelihood / oldpi_a_likelihood
-
 
             mean, variance = tf.nn.moments(self.advantages, axes=0)
             normalized_adv = (self.advantages - mean) / tf.sqrt(variance)
@@ -267,23 +265,22 @@ class PPO(object):
                                     activation=tf.nn.tanh,
                                     trainable=trainable)
 
-            obf = Normal(mean, log_sigma, exp_scale)
+            obf = Continous(mean, log_sigma, exp_scale)
         else:
             logits = tf.layers.dense(x, self.a_dim,
                                      activation=None,
                                      trainable=trainable)
 
-            obf = Softmax(logits, exp_scale)
+            obf = Categorical(logits, exp_scale)
 
         return obf
 
     def predict(self, state):
         return self.sess.run((self.policy), feed_dict={self.state: state})
 
-
     def train(self, trajectory):
-        states      = np.vstack(trajectory["observations"] + [trajectory["final_state"]])
-        values      = self.sess.run((self.value_out), feed_dict={self.state: states})
+        states = np.vstack(trajectory["observations"] + [trajectory["final_state"]])
+        values = self.sess.run((self.value_out), feed_dict={self.state: states})
 
         trajectory = pd.DataFrame(data={"observations":trajectory["observations"],
                                         "actions": trajectory["actions"],
@@ -310,35 +307,51 @@ class PPO(object):
         trajectory["value_target"] = values[:-1] + adv
 
         self.trajectory_storage = pd.concat([self.trajectory_storage, trajectory])
-        if self.trajectory_storage.shape[0] > self.storage:
-            self.sess.run(self.equal_op)
-            total_loss = 0
-            training_samples = self.trajectory_storage.shape[0] // min(self.batch, self.trajectory_storage.shape[0])
-            for _ in range(training_samples):
-                sample = self.trajectory_storage.sample(min(self.batch, self.trajectory_storage.shape[0]))
-                obs   = np.vstack(sample["observations"])
-                acs   = np.vstack(sample["actions"])
-                vtarg = np.asarray(sample["value_target"])
-                adv   = np.asarray(sample["adv"])
 
-                loss = 0
-                for _ in range(self.optim_epoch):
-                    _, epoch_l = self.sess.run(((self.optimizer), self.Lt),
-                                    feed_dict={self.state: obs,
-                                               self.actions: acs,
-                                               self.vtarget: vtarg,
-                                               self.advantages: adv})
-
-
-
-                    loss += abs(epoch_l)
-
-                total_loss += abs(loss / self.optim_epoch)
-
-            self.sess.run(self.decay_u_op)
-            self.trajectory_storage = pd.DataFrame()
-            return total_loss / training_samples
+        if len(self.trajectory_storage) > self.storage:
+            return self.update_policy()
 
         return 0
+    
+    def update_policy(self):
+        
+        #########################
+        # Sort the trajectories #
+        #########################
+        groups = range(len(self.trajectory_storage) // self.horizon)
+
+        ####################################
+        # Random sampling the trajectories #
+        # gives much better results than   #
+        # taking everyone once             #
+        ####################################
+
+        self.sess.run(self.equal_op)
+        policy_loss = np.array([])
+        for _ in groups:
+            sample = self.trajectory_storage.sample(self.horizon)
+            obs    = np.vstack(sample["observations"])
+            acs    = np.vstack(sample["actions"])
+            vtarg  = np.asarray(sample["value_target"])
+            adv    = np.asarray(sample["adv"])
+
+            loss = 0
+            for _ in range(self.optim_epoch):
+                _, epoch_l = self.sess.run(((self.optimizer), self.Lt),
+                                feed_dict={self.state: obs,
+                                           self.actions: acs,
+                                           self.vtarget: vtarg,
+                                           self.advantages: adv})
+
+
+
+                loss += abs(epoch_l)
+
+            policy_loss = np.append(policy_loss, [abs(loss) / self.optim_epoch])
+
+        self.sess.run(self.decay_u_op)
+        self.trajectory_storage = pd.DataFrame()
+
+        return np.mean(policy_loss)
 
 

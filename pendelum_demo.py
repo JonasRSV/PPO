@@ -28,7 +28,7 @@ if __name__ == "__main__":
                         1,
                         gamma=0.95,
                         clip_param=0.2,
-                        batch=32,
+                        horizon=32,
                         optim_epoch=4,
                         lr_decay=0.001,
                         storage=32,
