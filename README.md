@@ -3,8 +3,9 @@
 ### [Resources](#resources-1)
 ### [Requirements](#requirements-1)
 ### [Summaries](#summaries-1)
-### [Continous Problem](#continous)
-### [Discrete Problem](#discrete)
+### [Demos](#demos-1)
+  * [Continous Problem](#continous)
+  * [Discrete Problem](#discrete)
 
 ### Resources 
   * https://arxiv.org/pdf/1707.06347.pdf (PPO)
@@ -26,6 +27,8 @@ Start Tensorboard on the summaries directory, create one if there is none then r
 
 <br>
 <br>
+
+## Demos
 
 ## Continous
 
